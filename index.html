@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Aim Trainer</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      background-color: #111;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    h1 {
+      margin-top: 30px;
+    }
+
+    #difficultyMenu, #gameUI {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .difficulty-btn, #startBtn, #backBtn {
+      margin: 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+      font-weight: bold;
+      border: none;
+      cursor: pointer;
+      border-radius: 8px;
+    }
+
+    .easy { background-color: lightgreen; color: black; }
+    .normal { background-color: gold; color: black; }
+    .hard { background-color: crimson; color: white; }
+    .competitive { background-color: deepskyblue; color: white; }
+    #backBtn { background-color: gray; color: white; }
+
+    #gameArea {
+      position: relative;
+      width: 800px;
+      height: 600px;
+      background-color: #222;
+      border: 3px solid #555;
+      margin-top: 20px;
+      overflow: hidden;
+      cursor: crosshair;
+    }
+
+    .target {
+      position: absolute;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background-color: red;
+      cursor: pointer;
+    }
+
+    .miss {
+      position: absolute;
+      color: white;
+      font-size: 24px;
+      pointer-events: none;
+      animation: fadeOut 1s ease-out forwards;
+    }
+
+    @keyframes fadeOut {
+      0% { opacity: 1; }
+      100% { opacity: 0; transform: translateY(-20px); }
+    }
+
+    #scoreBoard, #messageArea {
+      margin-top: 10px;
+      font-size: 18px;
+    }
+
+    audio {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎯 Aim Trainer</h1>
+
+  <!-- 난이도 선택 -->
+  <div id="difficultyMenu" style="display: flex;">
+    <p>난이도를 선택하세요</p>
+    <button class="difficulty-btn easy" data-time="2000">Easy</button>
+    <button class="difficulty-btn normal" data-time="1000">Normal</button>
+    <button class="difficulty-btn hard" data-time="500">Hard</button>
+    <button class="difficulty-btn competitive" data-time="0" data-mode="competitive">Competitive</button>
+  </div>
+
+  <!-- 게임 UI -->
+  <div id="gameUI">
+    <button id="startBtn">게임 시작</button>
+    <button id="backBtn">← 메뉴로 돌아가기</button>
+    <div id="scoreBoard"></div>
+    <div id="messageArea"></div>
+    <div id="gameArea"></div>
+  </div>
+
+  <!-- 오디오 -->
+  <audio id="hitSound" src="https://assets.mixkit.co/sfx/preview/mixkit-arcade-mechanical-bling-210.wav"></audio>
+  <audio id="missSound" src="https://assets.mixkit.co/sfx/preview/mixkit-video-game-hit-1124.wav"></audio>
+  <audio id="bgm" src="https://cdn.pixabay.com/audio/2023/02/02/audio_928b1c6e2a.mp3" loop></audio>
+
+  <script>
+    const difficultyMenu = document.getElementById('difficultyMenu');
+    const gameUI = document.getElementById('gameUI');
+    const startBtn = document.getElementById('startBtn');
+    const backBtn = document.getElementById('backBtn');
+    const scoreBoard = document.getElementById('scoreBoard');
+    const messageArea = document.getElementById('messageArea');
+    const gameArea = document.getElementById('gameArea');
+
+    const hitSound = document.getElementById('hitSound');
+    const missSound = document.getElementById('missSound');
+    const bgm = document.getElementById('bgm');
+
+    let score = 0;
+    let losses = 0;
+    let totalTargets = 10;
+    let targetsLeft = totalTargets;
+    let totalClicks = 0;
+    let targetTimeout = 1000;
+    let competitiveMode = false;
+    let timeoutID = null;
+
+    function resetGame() {
+      score = 0;
+      losses = 0;
+      totalClicks = 0;
+      targetsLeft = totalTargets;
+      updateScore();
+      clearTimeout(timeoutID);
+      gameArea.innerHTML = '';
+      messageArea.textContent = '';
+    }
+
+    function updateScore() {
+      if (competitiveMode) {
+        scoreBoard.textContent = `승리: ${score} | 패배: ${losses} | 남은 라운드: ${targetsLeft}`;
+      } else {
+        const acc = totalClicks === 0 ? 0 : Math.round((score / totalClicks) * 100);
+        scoreBoard.textContent = `점수: ${score} | 정확도: ${acc}% | 남은 타겟: ${targetsLeft}`;
+      }
+    }
+
+    function showEffect(type) {
+      if (type === 'win') {
+        messageArea.textContent = '🎆 당신이 먼저 클릭했습니다!';
+      } else if (type === 'loss') {
+        messageArea.textContent = '💻 CPU가 먼저 클릭했습니다!';
+      }
+      setTimeout(() => messageArea.textContent = '', 1500);
+    }
+
+    function spawnTarget() {
+      if (targetsLeft <= 0) {
+        alert(competitiveMode ? `게임 종료!\n승리: ${score} | 패배: ${losses}` :
+                                `게임 종료!\n최종 점수: ${score}\n정확도: ${Math.round((score / totalClicks) * 100 || 0)}%`);
+        startBtn.disabled = false;
+        return;
+      }
+
+      const target = document.createElement('div');
+      target.classList.add('target');
+      const size = 30;
+      const maxX = gameArea.clientWidth - size;
+      const maxY = gameArea.clientHeight - size;
+      target.style.left = `${Math.random() * maxX}px`;
+      target.style.top = `${Math.random() * maxY}px`;
+      gameArea.appendChild(target);
+
+      let clicked = false;
+
+      if (competitiveMode) {
+        const cpuDelay = Math.random() * 1000 + 500;
+        timeoutID = setTimeout(() => {
+          if (!clicked) {
+            losses++;
+            targetsLeft--;
+            target.remove();
+            showEffect('loss');
+            missSound.play();
+            updateScore();
+            spawnTarget();
+          }
+        }, cpuDelay);
+
+        target.addEventListener('click', e => {
+          e.stopPropagation();
+          if (!clicked) {
+            clicked = true;
+            clearTimeout(timeoutID);
+            score++;
+            targetsLeft--;
+            target.remove();
+            showEffect('win');
+            hitSound.play();
+            updateScore();
+            spawnTarget();
+          }
+        });
+
+      } else {
+        timeoutID = setTimeout(() => {
+          if (!clicked) {
+            targetsLeft--;
+            target.remove();
+            missSound.play();
+            updateScore();
+            spawnTarget();
+          }
+        }, targetTimeout);
+
+        target.addEventListener('click', e => {
+          e.stopPropagation();
+          if (!clicked) {
+            clicked = true;
+            clearTimeout(timeoutID);
+            score++;
+            totalClicks++;
+            target.remove();
+            hitSound.play();
+            updateScore();
+            spawnTarget();
+          }
+        });
+      }
+    }
+
+    gameArea.addEventListener('click', e => {
+      if (targetsLeft <= 0) return;
+      const missMark = document.createElement('div');
+      missMark.textContent = '❌';
+      missMark.classList.add('miss');
+      missMark.style.left = `${e.offsetX - 12}px`;
+      missMark.style.top = `${e.offsetY - 12}px`;
+      gameArea.appendChild(missMark);
+      setTimeout(() => missMark.remove(), 1000);
+      if (!competitiveMode) {
+        totalClicks++;
+        missSound.play();
+        updateScore();
+      }
+    });
+
+    document.querySelectorAll('.difficulty-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.mode;
+        competitiveMode = mode === 'competitive';
+        targetTimeout = parseInt(btn.dataset.time);
+        difficultyMenu.style.display = 'none';
+        gameUI.style.display = 'flex';
+        bgm.play();
+      });
+    });
+
+    startBtn.addEventListener('click', () => {
+      resetGame();
+      startBtn.disabled = true;
+      spawnTarget();
+    });
+
+    backBtn.addEventListener('click', () => {
+      resetGame();
+      bgm.pause();
+      bgm.currentTime = 0;
+      gameUI.style.display = 'none';
+      difficultyMenu.style.display = 'flex';
+    });
+  </script>
+</body>
+</html>
+
+
